@@ -9,6 +9,9 @@ import {
   initiateTransfer,
   createTransferRecipient,
 } from "./paystack";
+import { paymentMiddleware, x402ResourceServer } from "@okxweb3/x402-express";
+import { ExactEvmScheme } from "@okxweb3/x402-evm/exact/server";
+import { OKXFacilitatorClient } from "@okxweb3/x402-core";
 
 // ---------------------------------------------------------------------------
 // MCP server definition — this is the "Paystack Payment Processor" ASP.
@@ -117,12 +120,57 @@ function buildServer() {
 // (Railway, Render, a small VPS, or Vercel with a custom server).
 // ---------------------------------------------------------------------------
 
+const NETWORK = "eip155:196" as const;
+const PAY_TO = process.env.PAY_TO_ADDRESS || "0xb303077bf3a3877d0e1614487334919a8b349840";
+
+const facilitator = new OKXFacilitatorClient({
+  apiKey: process.env.OKX_API_KEY || "",
+  secretKey: process.env.OKX_SECRET_KEY || "",
+  passphrase: process.env.OKX_PASSPHRASE || "",
+});
+
+const resourceServer = new x402ResourceServer(facilitator)
+  .register(NETWORK, new ExactEvmScheme());
+
+const priced = {
+  scheme: "exact" as const,
+  network: NETWORK,
+  payTo: PAY_TO,
+  price: "$0.03" as const,
+  syncSettle: true as const,
+};
+
 const app = express();
 app.use(express.json());
 
+// Adapter layer to branch on JSON-RPC tool name before matching a route key in OKX SDK
+app.use((req, res, next) => {
+  if (req.method === "POST" && req.path === "/mcp" && req.body?.method === "tools/call") {
+    const toolName = req.body.params?.name;
+    if (toolName) {
+      req.url = `/mcp/${toolName}`;
+    }
+  }
+  next();
+});
+
+app.use(
+  paymentMiddleware(
+    {
+      "POST /mcp/create_payment_link": { accepts: [priced], description: "Create Paystack payment link" },
+      "POST /mcp/verify_transaction":   { accepts: [priced], description: "Verify Paystack transaction" },
+      "POST /mcp/initiate_transfer":    { accepts: [priced], description: "Initiate Paystack transfer" },
+    },
+    resourceServer,
+    undefined,
+    undefined,
+    false,
+  ),
+);
+
 app.get("/health", (_req, res) => res.json({ status: "ok", service: "paystack-payment-processor" }));
 
-app.post("/mcp", async (req, res) => {
+app.post("/mcp*", async (req, res) => {
   const server = buildServer();
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless mode: no session persistence needed for pay-per-call tools
@@ -138,7 +186,13 @@ app.post("/mcp", async (req, res) => {
 });
 
 const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
+  try {
+    await resourceServer.initialize(); // fetches supported kinds from facilitator on startup
+    console.log("OKX x402 Resource Server initialized successfully.");
+  } catch (err) {
+    console.error("Failed to initialize OKX x402 Resource Server:", err);
+  }
   console.log(`Paystack Payment Processor MCP server listening on port ${PORT}`);
   console.log(`MCP endpoint: http://localhost:${PORT}/mcp`);
 });
