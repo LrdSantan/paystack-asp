@@ -141,6 +141,20 @@ const priced = {
 };
 
 const app = express();
+
+// FIX: OKX's x402 replay client (task-402-pay) does not send an Accept
+// header that satisfies the MCP StreamableHTTPServerTransport's requirement
+// for both "application/json" and "text/event-stream". Without this, every
+// real paid retry from a buyer agent gets rejected with 406 Not Acceptable —
+// which is what caused the organizers' reported timeout. Force the header
+// before anything downstream reads it.
+app.use((req, res, next) => {
+  if (req.path === "/mcp" || req.path.startsWith("/mcp/")) {
+    req.headers.accept = "application/json, text/event-stream";
+  }
+  next();
+});
+
 app.use(express.json());
 
 // Adapter layer to branch on JSON-RPC tool name before matching a route key in OKX SDK
@@ -158,8 +172,8 @@ app.use(
   paymentMiddleware(
     {
       "POST /mcp/create_payment_link": { accepts: [priced], description: "Create Paystack payment link" },
-      "POST /mcp/verify_transaction":   { accepts: [priced], description: "Verify Paystack transaction" },
-      "POST /mcp/initiate_transfer":    { accepts: [priced], description: "Initiate Paystack transfer" },
+      "POST /mcp/verify_transaction": { accepts: [priced], description: "Verify Paystack transaction" },
+      "POST /mcp/initiate_transfer": { accepts: [priced], description: "Initiate Paystack transfer" },
     },
     resourceServer,
     undefined,
