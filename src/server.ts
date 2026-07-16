@@ -195,7 +195,17 @@ app.use(
   ),
 );
 
-app.get("/health", (_req, res) => res.json({ status: "ok", service: "paystack-payment-processor" }));
+app.get("/health", (_req, res) => res.json({
+  status: "ok",
+  service: "paystack-payment-processor",
+  okx_api_key_set: !!process.env.OKX_API_KEY,
+  okx_secret_set: !!process.env.OKX_SECRET_KEY,
+  okx_passphrase_set: !!process.env.OKX_PASSPHRASE,
+  okx_api_key_prefix: process.env.OKX_API_KEY ? process.env.OKX_API_KEY.substring(0, 4) : "",
+  okx_api_key_len: process.env.OKX_API_KEY ? process.env.OKX_API_KEY.length : 0,
+  okx_secret_len: process.env.OKX_SECRET_KEY ? process.env.OKX_SECRET_KEY.length : 0,
+  okx_passphrase_len: process.env.OKX_PASSPHRASE ? process.env.OKX_PASSPHRASE.length : 0,
+}));
 
 app.post("/mcp*", async (req, res) => {
   const server = buildServer();
