@@ -150,7 +150,9 @@ const app = express();
 // before anything downstream reads it.
 app.use((req, res, next) => {
   if (req.path === "/mcp" || req.path.startsWith("/mcp/")) {
+    console.log(`[accept-fix] path=${req.path} before="${req.headers.accept}"`);
     req.headers.accept = "application/json, text/event-stream";
+    console.log(`[accept-fix] after="${req.headers.accept}"`);
   }
   next();
 });
