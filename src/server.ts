@@ -142,20 +142,31 @@ const priced = {
 
 const app = express();
 
-// FIX: OKX's x402 replay client (task-402-pay) does not send an Accept
-// header that satisfies the MCP StreamableHTTPServerTransport's requirement
-// for both "application/json" and "text/event-stream". Without this, every
-// real paid retry from a buyer agent gets rejected with 406 Not Acceptable —
-// which is what caused the organizers' reported timeout. Force the header
-// before anything downstream reads it.
+// FIX (v2): The MCP transport's Node→Web-Standard request conversion
+// (@hono/node-server) builds its Headers object from req.rawHeaders — the
+// raw wire-format array — NOT from req.headers. Mutating req.headers.accept
+// alone has no effect on what the transport actually sees. OKX's x402 replay
+// client sends "Accept: */*", which fails the transport's requirement for
+// both "application/json" and "text/event-stream". We strip any existing
+// Accept header from the raw array and inject the correct one.
 app.use((req, res, next) => {
   if (req.path === "/mcp" || req.path.startsWith("/mcp/")) {
-    console.log(`[accept-fix] path=${req.path} before="${req.headers.accept}"`);
+    const filtered: string[] = [];
+    for (let i = 0; i < req.rawHeaders.length; i += 2) {
+      const key = req.rawHeaders[i];
+      const value = req.rawHeaders[i + 1];
+      if (key.toLowerCase() !== "accept") {
+        filtered.push(key, value);
+      }
+    }
+    filtered.push("Accept", "application/json, text/event-stream");
+    req.rawHeaders = filtered;
+    // Keep req.headers in sync too, in case anything else reads the parsed form
     req.headers.accept = "application/json, text/event-stream";
-    console.log(`[accept-fix] after="${req.headers.accept}"`);
   }
   next();
 });
+
 
 app.use(express.json());
 
